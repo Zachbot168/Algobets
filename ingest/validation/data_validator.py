@@ -124,6 +124,124 @@ class DataValidator:
             logger.error(f"Error validating roster data: {e}")
             return False
             
+    def validate_pandascore_data(self) -> bool:
+        """Validate PandaScore tournament data"""
+        try:
+            logger.info("Validating PandaScore data...")
+            
+            # Check if tables exist and have data
+            if not self._check_required_fields('bronze_tournaments', ['tournament_id', 'tournament_name']):
+                return False
+                
+            if not self._check_required_fields('bronze_series', ['series_id', 'tournament_id']):
+                return False
+                
+            # Check minimum tournament count
+            tournament_count = self._get_record_count('bronze_tournaments')
+            if tournament_count < 5:
+                logger.error(f"Insufficient tournaments: {tournament_count} < 5")
+                return False
+                
+            logger.info("PandaScore data validation passed")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error validating PandaScore data: {e}")
+            return False
+            
+    def validate_abios_data(self) -> bool:
+        """Validate Abios tournament metadata"""
+        try:
+            logger.info("Validating Abios data...")
+            
+            # Check if we have tournament metadata
+            tournament_count = self._get_record_count('bronze_tournaments')
+            if tournament_count == 0:
+                logger.warning("No Abios tournament data found")
+                return True  # Not a failure if no data exists
+                
+            logger.info("Abios data validation passed")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error validating Abios data: {e}")
+            return False
+            
+    def validate_underdog_data(self) -> bool:
+        """Validate Underdog Fantasy props data"""
+        try:
+            logger.info("Validating Underdog props data...")
+            
+            # Check if player props table exists and has data
+            if not self._check_required_fields('bronze_player_props', ['prop_id', 'player_name', 'prop_type']):
+                return False
+                
+            # Check for reasonable prop values
+            query = "SELECT COUNT(*) FROM bronze_player_props WHERE prop_line < 0 OR prop_line > 1000"
+            result = db.execute_query(query)
+            invalid_props = result[0][0] if result else 0
+            
+            if invalid_props > 0:
+                logger.error(f"Found {invalid_props} props with invalid line values")
+                return False
+                
+            logger.info("Underdog props data validation passed")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error validating Underdog data: {e}")
+            return False
+            
+    def validate_patch_data(self) -> bool:
+        """Validate patch analysis data"""
+        try:
+            logger.info("Validating patch data...")
+            
+            # Check if patches table exists and has data
+            if not self._check_required_fields('bronze_patches', ['patch_id', 'version', 'impact_score']):
+                return False
+                
+            # Check impact scores are in valid range [0.0, 1.0]
+            query = "SELECT COUNT(*) FROM bronze_patches WHERE impact_score < 0 OR impact_score > 1"
+            result = db.execute_query(query)
+            invalid_scores = result[0][0] if result else 0
+            
+            if invalid_scores > 0:
+                logger.error(f"Found {invalid_scores} patches with invalid impact scores")
+                return False
+                
+            logger.info("Patch data validation passed")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error validating patch data: {e}")
+            return False
+            
+    def validate_roster_changes_data(self) -> bool:
+        """Validate roster changes data"""
+        try:
+            logger.info("Validating roster changes data...")
+            
+            # Check if roster changes table exists and has data
+            if not self._check_required_fields('bronze_roster_changes', ['change_id', 'team_id', 'change_type']):
+                return False
+                
+            # Check confidence scores are in valid range [0.0, 1.0]
+            query = "SELECT COUNT(*) FROM bronze_roster_changes WHERE confidence < 0 OR confidence > 1"
+            result = db.execute_query(query)
+            invalid_confidence = result[0][0] if result else 0
+            
+            if invalid_confidence > 0:
+                logger.error(f"Found {invalid_confidence} roster changes with invalid confidence scores")
+                return False
+                
+            logger.info("Roster changes data validation passed")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error validating roster changes data: {e}")
+            return False
+            
     def _check_required_fields(self, table: str, required_fields: List[str]) -> bool:
         """Check that required fields are not null"""
         try:
@@ -332,10 +450,20 @@ class DataValidator:
             'odds': self._generate_table_stats('bronze_odds'),
             'teams': self._generate_table_stats('bronze_teams'),
             'players': self._generate_table_stats('bronze_players'),
+            'tournaments': self._generate_table_stats('bronze_tournaments'),
+            'series': self._generate_table_stats('bronze_series'),
+            'player_props': self._generate_table_stats('bronze_player_props'),
+            'patches': self._generate_table_stats('bronze_patches'),
+            'roster_changes': self._generate_table_stats('bronze_roster_changes'),
             'validation_results': {
                 'matches_valid': self.validate_matches_data(),
                 'odds_valid': self.validate_odds_data(),
-                'rosters_valid': self.validate_roster_data()
+                'rosters_valid': self.validate_roster_data(),
+                'pandascore_valid': self.validate_pandascore_data(),
+                'abios_valid': self.validate_abios_data(),
+                'underdog_valid': self.validate_underdog_data(),
+                'patches_valid': self.validate_patch_data(),
+                'roster_changes_valid': self.validate_roster_changes_data()
             }
         }
         
@@ -350,7 +478,13 @@ class DataValidator:
             record_count = count_result[0][0] if count_result else 0
             
             # Latest record
-            if table in ['bronze_matches', 'bronze_odds', 'bronze_teams', 'bronze_players']:
+            tables_with_ingested_at = [
+                'bronze_matches', 'bronze_odds', 'bronze_teams', 'bronze_players',
+                'bronze_tournaments', 'bronze_series', 'bronze_player_props', 
+                'bronze_patches', 'bronze_roster_changes'
+            ]
+            
+            if table in tables_with_ingested_at:
                 latest_query = f"SELECT MAX(ingested_at) FROM {table}"
                 latest_result = db.execute_query(latest_query)
                 latest_record = latest_result[0][0] if latest_result and latest_result[0][0] else None

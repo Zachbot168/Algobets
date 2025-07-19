@@ -18,6 +18,11 @@ from ingest.database import db
 from ingest.riot_api.matches import RiotMatchIngester
 from ingest.odds_api.odds_collector import OddsCollector
 from ingest.roster_scraper.teams import RosterScraper
+from ingest.roster_scraper.change_detector import RosterChangeDetector
+from ingest.pandascore_api.matches import PandaScoreIngester
+from ingest.abios_api.matches import AbiosIngester
+from ingest.underdog_api.props import UnderdogPropsIngester
+from ingest.patch_analysis.patch_ingester import PatchIngester
 from ingest.validation.data_validator import DataValidator
 
 # Configure logging
@@ -52,7 +57,12 @@ class IngestionOrchestrator:
             tasks = [
                 self.ingest_matches(days_back),
                 self.ingest_odds(),
-                self.ingest_rosters()
+                self.ingest_rosters(),
+                self.ingest_pandascore_data(),
+                self.ingest_abios_data(),
+                self.ingest_underdog_props(),
+                self.ingest_patch_analysis(),
+                self.detect_roster_changes()
             ]
             
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -61,7 +71,12 @@ class IngestionOrchestrator:
             self.results = {
                 'matches': results[0] if not isinstance(results[0], Exception) else {'error': str(results[0])},
                 'odds': results[1] if not isinstance(results[1], Exception) else {'error': str(results[1])},
-                'rosters': results[2] if not isinstance(results[2], Exception) else {'error': str(results[2])}
+                'rosters': results[2] if not isinstance(results[2], Exception) else {'error': str(results[2])},
+                'pandascore': results[3] if not isinstance(results[3], Exception) else {'error': str(results[3])},
+                'abios': results[4] if not isinstance(results[4], Exception) else {'error': str(results[4])},
+                'underdog_props': results[5] if not isinstance(results[5], Exception) else {'error': str(results[5])},
+                'patch_analysis': results[6] if not isinstance(results[6], Exception) else {'error': str(results[6])},
+                'roster_changes': results[7] if not isinstance(results[7], Exception) else {'error': str(results[7])}
             }
             
             # Validate ingested data
@@ -134,6 +149,81 @@ class IngestionOrchestrator:
             logger.error(f"Roster ingestion failed: {e}")
             return {'error': str(e), 'teams_count': 0}
             
+    async def ingest_pandascore_data(self) -> Dict[str, Any]:
+        """Ingest PandaScore tournament and match data"""
+        logger.info("Starting PandaScore data ingestion...")
+        
+        try:
+            ingester = PandaScoreIngester()
+            result = await ingester.ingest_data()
+            
+            logger.info(f"PandaScore ingestion completed: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"PandaScore ingestion failed: {e}")
+            return {'error': str(e), 'records_count': 0}
+            
+    async def ingest_abios_data(self) -> Dict[str, Any]:
+        """Ingest Abios tournament metadata"""
+        logger.info("Starting Abios data ingestion...")
+        
+        try:
+            ingester = AbiosIngester()
+            result = await ingester.ingest_data()
+            
+            logger.info(f"Abios ingestion completed: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Abios ingestion failed: {e}")
+            return {'error': str(e), 'records_count': 0}
+            
+    async def ingest_underdog_props(self) -> Dict[str, Any]:
+        """Ingest Underdog Fantasy player props"""
+        logger.info("Starting Underdog props ingestion...")
+        
+        try:
+            ingester = UnderdogPropsIngester()
+            result = await ingester.ingest_data()
+            
+            logger.info(f"Underdog props ingestion completed: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Underdog props ingestion failed: {e}")
+            return {'error': str(e), 'records_count': 0}
+            
+    async def ingest_patch_analysis(self) -> Dict[str, Any]:
+        """Ingest and analyze patch data with GPT-4"""
+        logger.info("Starting patch analysis...")
+        
+        try:
+            ingester = PatchIngester()
+            result = await ingester.ingest_data()
+            
+            logger.info(f"Patch analysis completed: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Patch analysis failed: {e}")
+            return {'error': str(e), 'patches_count': 0}
+            
+    async def detect_roster_changes(self) -> Dict[str, Any]:
+        """Detect roster changes via multiple sources"""
+        logger.info("Starting roster change detection...")
+        
+        try:
+            detector = RosterChangeDetector()
+            result = await detector.ingest_data()
+            
+            logger.info(f"Roster change detection completed: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Roster change detection failed: {e}")
+            return {'error': str(e), 'changes_count': 0}
+            
     async def validate_data(self) -> Dict[str, Any]:
         """Validate all ingested data"""
         logger.info("Starting data validation...")
@@ -142,7 +232,12 @@ class IngestionOrchestrator:
             validation_results = {
                 'matches_valid': self.validator.validate_matches_data(),
                 'odds_valid': self.validator.validate_odds_data(),
-                'rosters_valid': self.validator.validate_roster_data()
+                'rosters_valid': self.validator.validate_roster_data(),
+                'pandascore_valid': self.validator.validate_pandascore_data(),
+                'abios_valid': self.validator.validate_abios_data(),
+                'underdog_valid': self.validator.validate_underdog_data(),
+                'patches_valid': self.validator.validate_patch_data(),
+                'roster_changes_valid': self.validator.validate_roster_changes_data()
             }
             
             # Generate detailed quality report
@@ -182,7 +277,12 @@ class IngestionOrchestrator:
                     result.get('matches_count', 0) +
                     result.get('records_count', 0) +
                     result.get('teams_count', 0) +
-                    result.get('players_count', 0)
+                    result.get('players_count', 0) +
+                    result.get('tournaments_count', 0) +
+                    result.get('series_count', 0) +
+                    result.get('props_count', 0) +
+                    result.get('patches_count', 0) +
+                    result.get('changes_count', 0)
                 )
                 
                 summary['data_sources'][source] = {
@@ -197,7 +297,12 @@ class IngestionOrchestrator:
             summary['validation_status'] = {
                 'matches': validation.get('matches_valid', False),
                 'odds': validation.get('odds_valid', False),
-                'rosters': validation.get('rosters_valid', False)
+                'rosters': validation.get('rosters_valid', False),
+                'pandascore': validation.get('pandascore_valid', False),
+                'abios': validation.get('abios_valid', False),
+                'underdog': validation.get('underdog_valid', False),
+                'patches': validation.get('patches_valid', False),
+                'roster_changes': validation.get('roster_changes_valid', False)
             }
             
             # Check if any validation failed
